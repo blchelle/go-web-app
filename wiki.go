@@ -1,17 +1,25 @@
 package main
 
 import (
+	"errors"
 	"html/template"
 	"io/ioutil"
 	"log"
 	"net/http"
+	"regexp"
 )
 
 // Page holds the title and body of a web page
 type Page struct {
 	Title string
-	Body []byte
+	Body  []byte
 }
+
+// Parses the html files ahead of time
+var templates = template.Must(template.ParseFiles("edit.html", "view.html"))
+
+// Sets up a regular expression to compile path names later
+var validPath = regexp.MustCompile("^/(edit|save|view)/([\\w]+)$")
 
 // save gets a title and a body and creates a text file from that
 func (p *Page) save() error {
@@ -40,7 +48,11 @@ func loadPage(title string) (*Page, error) {
 // Otherwise it will redirect the user to the edit page for the same topic
 func viewHandler(w http.ResponseWriter, r *http.Request) {
 	// Extracts the page title from the path and trims the '/view/' prefix
-	title := r.URL.Path[len("/view/"):]
+	title, err := getTitle(w, r)
+
+	if err != nil {
+		return
+	}
 
 	// Attempts to load a page with the given title
 	p, err := loadPage(title)
@@ -59,8 +71,12 @@ func viewHandler(w http.ResponseWriter, r *http.Request) {
 // topic. Pressing save will create a '/send/' request, which is handled
 // by sendHandler
 func editHandler(w http.ResponseWriter, r *http.Request) {
-	// Extracts the page title from the path and trims the '/view/' prefix
-	title := r.URL.Path[len("/edit/"):]
+	// Extracts the page title from the path and trims the '/edit/' prefix
+	title, err := getTitle(w, r)
+
+	if err != nil {
+		return
+	}
 
 	// Attempts to load a page with the given title
 	p, err := loadPage(title)
@@ -78,15 +94,20 @@ func editHandler(w http.ResponseWriter, r *http.Request) {
 // saveHandler attempts to create a page from a title specified in the path
 // and a body from a form submission
 func saveHandler(w http.ResponseWriter, r *http.Request) {
-	// Gets the body from the path and the body from the form submission
-	title := r.URL.Path[len("/save/"):]
+	// Extracts the page title from the path and trims the '/edit/' prefix
+	title, err := getTitle(w, r)
+
+	if err != nil {
+		return
+	}
+
 	body := r.FormValue("body")
 
 	// Creates a Page, converting the body to a byte array in the process
 	p := &Page{Title: title, Body: []byte(body)}
 
 	// Saves the page to a .txt file
-	err := p.save()
+	err = p.save()
 
 	// Catches any errors that occurred while saving the new page
 	if err != nil {
@@ -102,21 +123,28 @@ func saveHandler(w http.ResponseWriter, r *http.Request) {
 // renderTemplate is a helper function to render an html template from a
 // specified file (pageName) and a specified page (p)
 func renderTemplate(w http.ResponseWriter, pageName string, p Page) {
-	t, err := template.ParseFiles(pageName + ".html")
-
-	// Catches any potential errors that occurred while parsing the template
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	err = t.Execute(w, p)
+	// Executes on one of the cached templates
+	err := templates.ExecuteTemplate(w, pageName+".html", p)
 
 	// Catches any potential errors that occurred executing the
 	// page into the template
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
+}
+
+// getTitle gets the title from the request URL path, it also throws an error
+// if the path does not match the regular expression above
+func getTitle(w http.ResponseWriter, r *http.Request) (string, error) {
+	m := validPath.FindStringSubmatch(r.URL.Path)
+
+	// The path does not match the pattern so the request is invalid
+	if m == nil {
+		http.NotFound(w, r)
+		return "", errors.New("Invalid Page Title")
+	}
+
+	return m[2], nil // The title is the second subexpression
 }
 
 func main() {
