@@ -83,10 +83,16 @@ func saveHandler(w http.ResponseWriter, r *http.Request) {
 	body := r.FormValue("body")
 
 	// Creates a Page, converting the body to a byte array in the process
-	p :=  &Page{Title: title, Body: []byte(body)}
+	p := &Page{Title: title, Body: []byte(body)}
 
 	// Saves the page to a .txt file
-	p.save()
+	err := p.save()
+
+	// Catches any errors that occurred while saving the new page
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 
 	// Redirects the user the view route, which will display the newly
 	// created page
@@ -96,8 +102,21 @@ func saveHandler(w http.ResponseWriter, r *http.Request) {
 // renderTemplate is a helper function to render an html template from a
 // specified file (pageName) and a specified page (p)
 func renderTemplate(w http.ResponseWriter, pageName string, p Page) {
-	t, _ := template.ParseFiles(pageName + ".html")
-	t.Execute(w, p)
+	t, err := template.ParseFiles(pageName + ".html")
+
+	// Catches any potential errors that occurred while parsing the template
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	err = t.Execute(w, p)
+
+	// Catches any potential errors that occurred executing the
+	// page into the template
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
 }
 
 func main() {
